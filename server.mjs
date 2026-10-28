@@ -4,19 +4,23 @@ import {randomBytes,scryptSync,timingSafeEqual} from 'node:crypto';
 import {resolve,join,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {initial} from './seed.mjs';
+import {migrateContent} from './content.mjs';
+import {analyticsStore} from './analytics.mjs';
 const root=dirname(fileURLToPath(import.meta.url));
 const fail=(status,message)=>Object.assign(new Error(message),{status});
 function string(v,max=300){if(typeof v!=='string'||v.length>max)throw fail(400,'نص غير صالح أو أطول من الحد المسموح.');return v.trim();}
 function address(v){v=string(v,2048);if(!v)return '';try{const u=new URL(v);if(!['https:','http:','mailto:','tel:'].includes(u.protocol)||u.username||u.password)throw 0;return v;}catch{throw fail(400,'الرابط غير صالح. استخدم https:// أو mailto: أو tel:');}}
 function image(v){v=string(v,200);if(v&&!/^\/uploads\/[a-f0-9]{48}\.(png|jpg|webp)$/.test(v))throw fail(400,'مسار الصورة غير صالح.');return v;}
 export function validateContent(v){
+ if(v?.locales){if(!v.locales.ar||!v.locales.en)throw fail(400,'المحتوى العربي والإنجليزي مطلوب.');return {locales:{ar:validateContent(v.locales.ar),en:validateContent(v.locales.en)}};}
  if(!v||!v.profile||!Array.isArray(v.links)||!Array.isArray(v.projects)||v.links.length>50||v.projects.length>30)throw fail(400,'بيانات الصفحة غير صالحة.');
  const p=v.profile;if(!/^#[a-f0-9]{6}$/i.test(p.accent))throw fail(400,'اللون غير صالح.');
  const profile={name:string(p.name,80),role:string(p.role,100),bio:string(p.bio,400),avatar:image(p.avatar),accent:p.accent,footer:string(p.footer,80),email:string(p.email||'',150)};
  if(!profile.name)throw fail(400,'الاسم مطلوب.');
+ const resources=v.resources||[];if(!Array.isArray(resources)||resources.length>30)throw fail(400,'عدد الملفات غير صالح.');
  const ids=new Set();
  function common(x){const id=string(x.id,80);if(!id||ids.has(id))throw fail(400,'معرّف البطاقة مكرر.');ids.add(id);const title=string(x.title,100);if(!title)throw fail(400,'عنوان البطاقة مطلوب.');return {id,title,description:string(x.description,400),url:address(x.url),visible:!!x.visible};}
- return {profile,links:v.links.map(x=>({...common(x),icon:['layers','code','linkedin','mail','instagram','globe','phone'].includes(x.icon)?x.icon:'globe',featured:!!x.featured})),projects:v.projects.map(x=>({...common(x),image:image(x.image)}))};
+ return {profile,resources:resources.map(x=>{if(!['cv','certificate'].includes(x.type))throw fail(400,'نوع البطاقة غير صالح.');const file=string(x.file||'',200);if(file&&!/^\/uploads\/[a-f0-9]{48}\.(pdf|png|jpg|webp)$/.test(file))throw fail(400,'مسار الملف غير صالح.');return {...common(x),type:x.type,file,issuer:string(x.issuer||'',100),date:string(x.date||'',40)};}),links:v.links.map(x=>({...common(x),icon:['layers','code','linkedin','mail','instagram','globe','phone'].includes(x.icon)?x.icon:'globe',featured:!!x.featured})),projects:v.projects.map(x=>({...common(x),image:image(x.image)}))};
 }
 export async function createApp(options={}){
  const dataDir=resolve(options.dataDir||process.env.DATA_DIR||join(root,'data'));
@@ -24,26 +28,42 @@ export async function createApp(options={}){
  const statePath=join(dataDir,'content.json');
  let state;
  try{state=JSON.parse(await readFile(statePath,'utf8'));validateContent(state.draft);validateContent(state.published);}catch(e){if(e.code!=='ENOENT')throw e;state={draft:structuredClone(initial),published:structuredClone(initial),revision:0,publishedAt:null};await writeFile(statePath,JSON.stringify(state,null,2),{mode:0o600});}
+ if(!state.draft.locales){try{await writeFile(join(dataDir,'content.v1-backup.json'),JSON.stringify(state,null,2),{flag:'wx',mode:0o600});}catch(e){if(e.code!=='EEXIST')throw e;}}
+ state.draft=validateContent(migrateContent(state.draft));state.published=validateContent(migrateContent(state.published));
+ await writeFile(statePath+'.tmp',JSON.stringify(state,null,2),{mode:0o600});await rename(statePath+'.tmp',statePath);
+ const analytics=await analyticsStore(dataDir);
  let queue=Promise.resolve();
  function persist(mutator){const op=queue.then(async()=>{const next=structuredClone(state);mutator(next);await writeFile(statePath+'.tmp',JSON.stringify(next,null,2),{mode:0o600});await rename(statePath+'.tmp',statePath);state=next;return state;});queue=op.catch(()=>{});return op;}
  const sessions=new Map(),attempts=new Map();
  const secure=options.secure??(process.env.SECURE_COOKIES==='true');
  const sessionCookie=(token,age)=>`session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${age}${secure?'; Secure':''}`;
  function auth(req){const token=req.headers.cookie?.split(';').map(x=>x.trim()).find(x=>x.startsWith('session='))?.slice(8);const s=sessions.get(token);if(!s||s.expires<Date.now()){sessions.delete(token);throw fail(401,'يرجى تسجيل الدخول.');}return {token,...s};}
- async function body(req){let chunks=[],size=0;for await(const c of req){size+=c.length;if(size>4*1024*1024)throw fail(413,'حجم الطلب كبير.');chunks.push(c);}try{return JSON.parse(Buffer.concat(chunks));}catch{throw fail(400,'طلب JSON غير صالح.');}}
- const mime={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.webp':'image/webp'};
+ async function body(req){let chunks=[],size=0;for await(const c of req){size+=c.length;if(size>8*1024*1024)throw fail(413,'حجم الطلب كبير.');chunks.push(c);}try{return JSON.parse(Buffer.concat(chunks));}catch{throw fail(400,'طلب JSON غير صالح.');}}
+ const mime={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.webp':'image/webp','.pdf':'application/pdf'};
  const server=http.createServer(async(req,res)=>{
   const json=(status,value)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(value));};
   try{
    res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','no-referrer');
    res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'self'; base-uri 'none'; form-action 'self'");
-   const path=new URL(req.url,'http://localhost').pathname;
+   const requestUrl=new URL(req.url,'http://localhost'),path=requestUrl.pathname;
+   const lang=requestUrl.searchParams.get('lang')==='en'?'en':'ar';
    if(path.startsWith('/api/')&&!['GET','HEAD'].includes(req.method)){
     const expected=options.origin||process.env.PUBLIC_ORIGIN||`http://${req.headers.host}`;
     if(req.headers.origin!==expected)throw fail(403,'مصدر الطلب غير مسموح.');
     if(!req.headers['content-type']?.startsWith('application/json'))throw fail(415,'JSON مطلوب.');
    }
-   if(req.method==='GET'&&path==='/api/content')return json(200,state.published);
+   if(req.method==='GET'&&path==='/api/content')return json(200,{...state.published.locales[lang],trackingToken:analytics.token(lang)});
+   if(req.method==='POST'&&path==='/api/events'){
+    const input=await body(req);if(!['ar','en'].includes(input.lang)||!analytics.verify(input.token,input.lang))throw fail(400,'رمز الإحصائيات غير صالح.');
+    if(!['view','click'].includes(input.type))throw fail(400,'نوع الحدث غير صالح.');
+    let key;
+    if(input.type==='click'){
+     if(!['links','projects','resources'].includes(input.kind))throw fail(400,'نوع البطاقة غير صالح.');
+     const item=state.published.locales[input.lang][input.kind].find(x=>x.id===input.id&&x.visible&&(x.url||x.file));
+     if(!item)throw fail(404,'البطاقة غير منشورة.');key=JSON.stringify([input.lang,input.kind,item.id]);
+    }
+    await analytics.record({type:input.type,lang:input.lang,key},req);return json(200,{ok:true});
+   }
    if(req.method==='POST'&&path==='/api/login'){
     const key=req.socket.remoteAddress, now=Date.now();
     for(const [k,a] of attempts)if(a.until<now)attempts.delete(k);
@@ -63,10 +83,11 @@ export async function createApp(options={}){
    if(path.startsWith('/api/admin')){
     const session=auth(req);
     if(req.method!=='GET'&&req.headers['x-csrf-token']!==session.csrf)throw fail(403,'جلسة غير صالحة، أعد تسجيل الدخول.');
+    if(req.method==='GET'&&path==='/api/admin/analytics'){const range=Number(requestUrl.searchParams.get('days')||30);if(![7,30,90].includes(range))throw fail(400,'الفترة غير صالحة.');return json(200,analytics.report(range));}
     if(req.method==='GET'&&path==='/api/admin')return json(200,{...state,csrf:session.csrf});
     if(req.method==='POST'&&path==='/api/admin/logout'){sessions.delete(session.token);res.setHeader('Set-Cookie',sessionCookie('',0));return json(200,{ok:true});}
     if(req.method==='PUT'&&path==='/api/admin/draft'){
-     const input=await body(req),content=validateContent(input.content);
+     const input=await body(req),content=validateContent(input.content?.locales?input.content:{locales:{...state.draft.locales,ar:input.content}});
      const next=await persist(s=>{if(input.revision!==s.revision)throw fail(409,'تغيّرت البيانات في نافذة أخرى. أعد تحميل الصفحة قبل الحفظ.');s.draft=content;s.revision++;});
      return json(200,{revision:next.revision});
     }
@@ -76,20 +97,21 @@ export async function createApp(options={}){
      return json(200,{revision:next.revision,publishedAt:next.publishedAt});
     }
     if(req.method==='POST'&&path==='/api/admin/upload'){
-     const input=await body(req);const match=typeof input.data==='string'&&input.data.match(/^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/);
-     if(!match)throw fail(400,'الصور المدعومة PNG وJPEG وWebP.');
-     const bytes=Buffer.from(match[2],'base64');if(bytes.length>2*1024*1024)throw fail(413,'أقصى حجم للصورة 2 ميجابايت.');
-     const valid=match[1]==='png'?bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])):match[1]==='jpeg'?bytes[0]===255&&bytes[1]===216&&bytes[2]===255:bytes.toString('ascii',0,4)==='RIFF'&&bytes.toString('ascii',8,12)==='WEBP';
+     const input=await body(req);const match=typeof input.data==='string'&&input.data.match(/^data:(image\/(png|jpeg|webp)|application\/(pdf));base64,([A-Za-z0-9+/=]+)$/);
+     if(!match)throw fail(400,'الملفات المدعومة PDF وPNG وJPEG وWebP.');
+     const format=match[2]||match[3];const bytes=Buffer.from(match[4],'base64');if(bytes.length>(format==='pdf'?5:2)*1024*1024)throw fail(413,'أقصى حجم: 5MB لملف PDF و2MB للصورة.');
+     const valid=format==='pdf'?bytes.toString('ascii',0,5)==='%PDF-':format==='png'?bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])):format==='jpeg'?bytes[0]===255&&bytes[1]===216&&bytes[2]===255:bytes.toString('ascii',0,4)==='RIFF'&&bytes.toString('ascii',8,12)==='WEBP';
      if(!valid)throw fail(400,'محتوى الملف لا يطابق صيغة الصورة.');
-     const filename=randomBytes(24).toString('hex')+'.'+(match[1]==='jpeg'?'jpg':match[1]);await writeFile(join(dataDir,'uploads',filename),bytes,{flag:'wx'});
+     const filename=randomBytes(24).toString('hex')+'.'+(format==='jpeg'?'jpg':format);await writeFile(join(dataDir,'uploads',filename),bytes,{flag:'wx'});
      return json(201,{url:'/uploads/'+filename});
     }
     throw fail(404,'المسار غير موجود.');
    }
    if(!['GET','HEAD'].includes(req.method))throw fail(405,'الطريقة غير مسموحة.');
    let file;
-   if(path.startsWith('/uploads/')){if(!/^\/uploads\/[a-f0-9]{48}\.(png|jpg|webp)$/.test(path))throw fail(404,'الملف غير موجود.');file=join(dataDir,path.slice(1));}
+   if(path.startsWith('/uploads/')){if(!/^\/uploads\/[a-f0-9]{48}\.(pdf|png|jpg|webp)$/.test(path))throw fail(404,'الملف غير موجود.');file=join(dataDir,path.slice(1));}
    else {const routes={'/':'index.html','/admin':'admin.html','/admin/':'admin.html','/app.js':'app.js','/admin.js':'admin.js','/style.css':'style.css','/favicon.svg':'favicon.svg'};if(!routes[path])throw fail(404,'الصفحة غير موجودة.');file=join(root,'public',routes[path]);}
+   if(file.endsWith('.pdf'))res.setHeader('Content-Disposition','attachment; filename="document.pdf"');
    const content=await readFile(file),extension=file.slice(file.lastIndexOf('.'));res.writeHead(200,{'Content-Type':mime[extension]||'application/octet-stream','Cache-Control':'no-cache'});res.end(req.method==='HEAD'?undefined:content);
   }catch(e){if(!res.headersSent)json(e.status||(e.code==='ENOENT'?404:500),{error:e.status?e.message:'تعذّر إتمام الطلب.'});else res.end();if(!e.status&&e.code!=='ENOENT')console.error(e);}
  });

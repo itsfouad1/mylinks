@@ -1,6 +1,6 @@
 {
   "name": "fouad-links",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "description": "Personal link page with an Arabic publishing dashboard",
@@ -11,7 +11,7 @@
     "start": "node --env-file-if-exists=.env server.mjs",
     "dev": "node --env-file-if-exists=.env server.mjs",
     "test": "node --test",
-    "check": "node --check server.mjs && node --check public/app.js && node --check public/admin.js",
+    "check": "node --check server.mjs && node --check public/app.js && node --check public/admin.js && node --check analytics.mjs && node --check content.mjs",
     "setup": "node setup.mjs"
   }
 }
