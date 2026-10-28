@@ -1,17 +1,27 @@
 {
   "name": "fouad-links",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "private": true,
   "type": "module",
-  "description": "Personal link page with an Arabic publishing dashboard",
+  "description": "Bilingual link-in-bio page with a Cloudflare Workers publishing dashboard",
   "engines": {
     "node": ">=22.12.0"
   },
   "scripts": {
-    "start": "node --env-file-if-exists=.env server.mjs",
-    "dev": "node --env-file-if-exists=.env server.mjs",
+    "dev": "node scripts/dev.mjs",
+    "start": "node scripts/dev.mjs",
+    "setup": "node scripts/setup.mjs",
+    "deploy": "wrangler deploy",
+    "db:local": "wrangler d1 migrations apply DB --local",
+    "db:remote": "wrangler d1 migrations apply DB --remote",
     "test": "node --test",
-    "check": "node --check server.mjs && node --check public/app.js && node --check public/admin.js && node --check analytics.mjs && node --check content.mjs",
-    "setup": "node setup.mjs"
+    "check": "node --check worker/index.mjs && node --check worker/security.mjs && node --check worker/validation.mjs && node --check public/app.js && node --check public/admin.js && node --check scripts/setup.mjs && node --check scripts/migrate-legacy.mjs && node --check scripts/dev.mjs",
+    "build": "wrangler deploy --dry-run --outdir .build",
+    "migrate:legacy": "node scripts/migrate-legacy.mjs",
+    "pretest": "npm run build"
+  },
+  "devDependencies": {
+    "miniflare": "4.20260730.0",
+    "wrangler": "4.155.0"
   }
 }

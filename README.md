@@ -1,149 +1,203 @@
-# Fouad Links — صفحة روابط ولوحة نشر شخصية
+# Fouad Links
 
-مشروع كامل قابل للتشغيل، بواجهة عربية RTL وتصميم فحمي وأخضر ليموني، مبني بـ **Node.js وJavaScript وCSS**. لا يحتاج npm install أو قاعدة بيانات خارجية أو مفاتيح API. حفظ البيانات يتم على الخادم في ملفات، وليس في متصفح الزائر.
+A bilingual personal link-in-bio website with a private publishing dashboard, built for **Cloudflare Workers**.
 
-## التشغيل على Windows أو Linux أو macOS
+Share your social profiles, selected projects, CV, and certificates through one responsive page. Edit content independently in Arabic and English, preview drafts, publish changes, and view aggregate engagement statistics.
 
-ثبّت Node.js 22.12 أو أحدث، ثم فك الضغط وافتح الطرفية داخل مجلد `fouad-links`:
+## Features
 
-```sh
+- Arabic RTL and English LTR public pages with a language switch.
+- Independent profile, links, projects, files, images, and footer content for each language.
+- A private Arabic dashboard with a live preview of the selected language.
+- Draft saving and explicit publishing for both languages together.
+- Link and project cards with visibility controls, featured styling, and drag or arrow reordering.
+- CV and certificate cards supporting external links, PDF downloads, and image uploads.
+- Aggregate page views and card clicks for the last 7, 30, or 90 days.
+- Password authentication, persistent sessions, CSRF checks, and login rate limiting.
+- Atomic revision checks to prevent concurrent dashboard saves from overwriting each other.
+- An import tool for content, uploads, and analytics from the original file-based versions.
+
+## Architecture
+
+| Component | Service |
+| --- | --- |
+| Public page and dashboard assets | Workers Static Assets |
+| API and authentication | Cloudflare Worker |
+| Content, sessions, counters, and rate limits | Cloudflare D1 |
+| Uploaded images and documents | Cloudflare R2 |
+| Expired records and analytics retention | Daily Worker Cron Trigger |
+
+The frontend uses vanilla JavaScript, HTML, and CSS. The Worker uses Web APIs and Web Crypto. There is no filesystem storage or long-running Node.js server in production.
+
+## Requirements
+
+- Node.js 22.12 or newer and npm.
+- A Cloudflare account with Workers, D1, and R2 available for production deployment.
+- A D1 database and an R2 bucket bound as `DB` and `FILES`.
+
+Local development uses simulated resources and does not require Cloudflare login. Node.js runs the development and deployment tools; it is not the production HTTP server.
+
+## Run Locally
+
+```bash
+npm ci
 npm run setup
-npm start
+npm run db:local
+npm run dev
 ```
 
-أدخل كلمة مرور خاصة بك (12 حرفًا على الأقل) في خطوة الإعداد. الأحرف ظاهرة في الطرفية أثناء الكتابة؛ استخدم طرفية خاصة. **لا توجد كلمة مرور افتراضية**. شغّل أمر الإعداد مرة واحدة.
+Open the URL printed by Wrangler, normally `http://localhost:8787`.
 
-- صفحة الزوار: http://localhost:3000
-- لوحة الإدارة: http://localhost:3000/admin
-- لإيقاف التشغيل: Ctrl+C
-- أثناء التطوير (أعد تشغيل الخادم بعد تعديل ملفات الخادم): `npm run dev`
+- Public page: `/`
+- Dashboard: `/admin`
+- English page: `/?lang=en`
 
-لا تحتاج نسخ `.env.example` للتشغيل المحلي. إذا احتجت تغيير الإعدادات انسخه إلى `.env`. يجب أن يطابق `DATA_DIR` المستخدم في `npm run setup` نفس المجلد الذي يستخدمه `npm start`. السكربت `setup` لا يقرأ `.env` تلقائيًا؛ لإعداد مسار مخصص من `.env` استخدم `node --env-file=.env setup.mjs`.
+Setup asks you to choose and confirm a password of 12–256 characters. It creates a private `.dev.vars` file containing a password verifier and a signing secret. Password input is visible in the terminal, so use a private terminal. There is no default password.
 
-## الاستخدام
+Local D1 and R2 data persist under `.wrangler/state`. Deploying the source does not upload that local data to production.
 
-1. ادخل `/admin` بكلمة مرورك.
-2. عدّل الاسم والصورة والنبذة من «الملف الشخصي».
-3. أضف عناوين روابطك الحقيقية: GitHub، LinkedIn، أعمالك، Instagram والتواصل. لم نفترض أي حساب أو عنوان خاص بك.
-4. أضف/عدّل/احذف البطاقات والمشاريع، وأخفِ ما لا تريد عرضه.
-5. اسحب البطاقات لترتيبها على الكمبيوتر، أو استخدم سهمي الترتيب على أي جهاز.
-6. «حفظ المسودة» يحفظ على الخادم بدون تغيير ما يراه الزوار.
-7. «نشر التغييرات» يحفظ التعديلات ثم ينشر النسخة الجديدة للزوار.
+## Dashboard Workflow
 
-المعاينة تتبع المسودة، لا الصفحة المنشورة. التغييرات في نافذة إضافة/تعديل البطاقة لا تدخل المسودة إلا عند «تطبيق على المسودة». تغييرات الملف والمظهر تظهر مباشرة في المعاينة، ثم تُحفظ أو تُنشر بالأزرار العلوية. يوجد تنبيه عند إغلاق الصفحة بتعديلات غير محفوظة.
+1. Sign in at `/admin`.
+2. Choose the language you want to edit.
+3. Update your profile, links, projects, CV, or certificates.
+4. Review the live preview.
+5. Save a draft or publish the changes.
 
-الرابط الفارغ يظهر كـ«قريبًا» بدون انتقال. لإخفائه تمامًا استخدم زر الإظهار. يمكنك وضع روابط `https://` و`http://` و`mailto:` و`tel:`. مثال تواصل: `mailto:you@example.com` أو `https://wa.me/970XXXXXXXXX` مع استبدال الرقم برقمك بصيغة دولية.
+Each language has independent content. Switching languages preserves unsaved edits in the other language. Saving and publishing apply to **both languages together**.
 
-الصور المدعومة: PNG وJPEG وWebP حتى 2MB. يفضّل صورة شخصية مربعة وأغلفة مشاريع بنسبة عرض إلى ارتفاع تقارب 2:1. ملفات الـCV والشهادات تدعم PDF حتى 5MB أو الصور حتى 2MB. الملفات المرفوعة عامة لمن يعرف رابطها؛ لا ترفع مستندات خاصة.
+The public page starts with editable sample text and empty links. Empty links appear as “coming soon”; hide them or add your own URLs before sharing the site.
 
-## الملفات
+PDF uploads are limited to 5 MB; PNG, JPEG, and WebP images are limited to 2 MB. Uploaded files are served by the Worker through `/uploads/...`; keep the R2 bucket private. A file attached to a card takes priority over its external URL.
+
+## Deploy to Cloudflare
+
+See [DEPLOY_AR.md](DEPLOY_AR.md) for the complete Arabic walkthrough.
+
+### 1. Authenticate and create resources
+
+```bash
+npx wrangler login
+npx wrangler d1 create fouad-links-db
+npx wrangler r2 bucket create fouad-links-files
+```
+
+Update `wrangler.jsonc` with the returned D1 `database_id`. The all-zero ID in the repository is a **local development placeholder**, not a production database ID. Change database and bucket names if you use different names.
+
+### 2. Apply the production schema and deploy
+
+```bash
+npm run db:remote
+npm run deploy
+```
+
+The first deployment is not ready for use until you configure the login secrets in the next step. The frontend can load, but APIs requiring secrets return a setup error.
+
+### 3. Set production secrets
+
+```bash
+npm run setup -- --remote
+```
+
+This sets `ADMIN_CREDENTIAL` and `SESSION_SECRET` through Wrangler using stdin. It does not print their values or put them in command-line arguments. Local `.dev.vars` values are **not** deployed automatically.
+
+The script asks for confirmation before replacing production secrets. Changing either secret invalidates existing sessions. After both secrets are set, open the deployed `/admin`, add your content, and publish.
+
+`PUBLIC_ORIGIN` is optional. Without it, writes must match the exact request origin. Set it only if you want to restrict API writes to a single canonical HTTPS origin; omit the trailing slash. It is a runtime Worker environment variable, not an administrator secret.
+
+### GitHub deployment
+
+Commit the source, migrations, `wrangler.jsonc`, and lockfile. After the initial resource and secret setup, connect the repository through Cloudflare Workers Builds. Use `npm run build` as the build command and `npm run deploy` as the deploy command. Keep the project root set to the directory containing `package.json`.
+
+Apply new D1 migrations deliberately with `npm run db:remote` before deploying code that requires them. Do not use production D1/R2 bindings for untrusted pull-request previews. Worker version preview URLs are disabled in the supplied configuration.
+
+## Configuration and Secrets
+
+| Name | Purpose |
+| --- | --- |
+| `DB` | D1 binding for content, sessions, and statistics |
+| `FILES` | R2 binding for uploads |
+| `ASSETS` | Worker static asset binding |
+| `ADMIN_CREDENTIAL` | Secret JSON password verifier generated by setup |
+| `SESSION_SECRET` | Secret used for event signing and rate-limit key hashing |
+| `PUBLIC_ORIGIN` | Optional canonical origin for API writes |
+
+Never commit `.dev.vars`, `.env`, old `data/` folders, or generated migration SQL. The included `.gitignore` excludes these paths.
+
+## Import an Existing Site
+
+See [MIGRATION_AR.md](MIGRATION_AR.md). The importer accepts `data/content.json`, optional `data/analytics.json`, and `data/uploads/` from version 1 or 2.
+
+```bash
+# Validate and create a private migration plan without changing D1 or R2.
+npm run migrate:legacy -- --from /absolute/path/to/old/data
+
+# Import into local simulated resources.
+npm run migrate:legacy -- --from /absolute/path/to/old/data --local
+
+# Import into the Cloudflare resources configured in wrangler.jsonc.
+npm run migrate:legacy -- --from /absolute/path/to/old/data --remote
+```
+
+The importer refuses to replace edited destination content. Use a fresh database or its untouched default content. It preserves separate drafts, published content, revisions, file paths, and recent analytics. Existing sessions are not imported.
+
+The original scrypt password verifier cannot be copied directly into this Worker. You can retain your password by running setup with `--legacy-admin /path/to/old/data/admin.json`; setup checks the old verifier and generates a new PBKDF2 verifier. Local and remote passwords are configured independently.
+
+## Analytics and Privacy
+
+Statistics count **page loads and clicks**, not unique people or confirmed downloads. Reloading or switching languages counts as another page load. Dashboard previews do not send tracking events.
+
+D1 stores daily counters grouped by language and card ID. It does not store raw IP addresses or visitor identifiers in the analytics table. Rate limiting stores rotating keyed hashes of network addresses, with expiration. Hosting providers may separately process request metadata under their own settings and policies.
+
+Some bots are filtered by User-Agent, events require a signed token valid for one hour, and rate limits reduce bursts. Counts remain approximate and can be affected by blockers, interrupted requests, or deliberate manipulation. Event counters use atomic SQL increments, so concurrent updates do not overwrite each other.
+
+The daily Cron Trigger removes expired sessions and rate-limit records and analytics older than the 90-day retention window. Keep that trigger enabled. Aggregate analytics are accessible only through authenticated API routes.
+
+## Authentication
+
+- PBKDF2-SHA256 verifier with a random salt and 100,000 iterations.
+- Random session tokens, stored as SHA-256 hashes in D1, with eight-hour expiration.
+- HTTP-only, SameSite cookies; Secure cookies on HTTPS.
+- CSRF tokens and exact-origin checks for authenticated writes.
+- Eight login requests per 15-minute fixed window per hashed network address, including successful attempts.
+- Secret rotation invalidates sessions across Worker instances.
+
+Upload validation checks allowed types, basic file signatures, and size limits. It is not antivirus scanning. Only the administrator can upload. Files are publicly downloadable by anyone who knows their URL; do not upload private documents.
+
+## Development Commands
+
+| Command | Purpose |
+| --- | --- |
+| `npm run setup` | Configure local administrator secrets |
+| `npm run db:local` | Apply local D1 migrations |
+| `npm run dev` | Run the local Worker and static assets |
+| `npm run check` | Check JavaScript syntax |
+| `npm test` | Build and test against Miniflare D1/R2 |
+| `npm run build` | Validate and bundle a deployment without publishing |
+| `npm run db:remote` | Apply production D1 migrations |
+| `npm run deploy` | Deploy to your Cloudflare account |
+
+Tests cover authentication, CSRF and origin validation, D1 write conflicts, bilingual publishing, R2 uploads, analytics concurrency, session persistence, secret rotation, retention cleanup, and legacy imports.
+
+## Project Structure
 
 ```text
-server.mjs          HTTP server, auth, validation, persistence, API
-setup.mjs           Create admin password hash
-seed.mjs            Initial Arabic content
-content.mjs         English defaults and v1 migration
-analytics.mjs       Private aggregate analytics
-public/index.html   Public page
-public/admin.html   Login and dashboard
-public/app.js       Shared public renderer
-public/admin.js     Dashboard behavior and uploads
-public/style.css    Responsive RTL design
-public/favicon.svg  FA mark
-test/app.test.mjs   Integration tests (folder: test)
+public/              Public page, dashboard, shared styles, and assets
+worker/              Request routing, validation, security, and D1 operations
+migrations/          D1 schema migrations
+scripts/             Setup, development, and legacy import tools
+test/                Cloudflare runtime integration tests
+seed.mjs             Initial Arabic content
+content.mjs          English defaults and legacy content conversion
+wrangler.jsonc       Worker configuration and resource bindings
 ```
 
-عند التشغيل ينشأ `data/` تلقائيًا:
+## Backups and Limits
 
-- `admin.json`: ملح وتجزئة كلمة المرور، لا كلمة المرور الأصلية.
-- `content.json`: المسودة والمحتوى المنشور ورقم المراجعة.
-- `uploads/`: الصور المرفوعة.
+Back up D1 and R2 separately; source control does not contain uploaded content. For example, export D1 with `npx wrangler d1 export DB --remote --output=backup.sql` and back up R2 objects using your chosen authenticated R2 tooling. Keep exports private.
 
-لا تُرفع هذه البيانات إلى Git. ZIP التسليم لا يحتوي كلمة مرور ولا بيانات جلسات الاختبار.
+Uploaded files are not deleted automatically when a card is removed, so old links keep working. Review and remove unused R2 objects manually after taking a backup. This application supports one administrator; it is not a multi-tenant product.
 
-## النشر الحقيقي على الإنترنت
+## Author
 
-المشروع جاهز للتشغيل على **خادم يدعم Node.js وعليه قرص دائم**. ليس صفحة static، ولا يعمل كاملًا بمجرد رفع `public/`. هذه الحزمة لا تتضمن حجز نطاق أو استضافة أو نشرًا عامًا. تحتاج استضافة لتصبح الصفحة متاحة من رابط إنستغرام.
-
-1. ارفع المصدر، وثبّت Node.js 22.12 أو أحدث.
-2. خصص قرصًا دائمًا لـ`data/` أو اضبط `DATA_DIR` على مسار دائم خارج مجلد الإصدارات.
-3. اضبط `HOST=0.0.0.0`، والمنفذ حسب الاستضافة.
-4. ضع `PUBLIC_ORIGIN=https://your-domain.example` بالضبط دون شرطة مائلة أخيرة، ثم `SECURE_COOKIES=true`.
-5. شغّل الإعداد بنفس متغيرات البيئة، ثم `npm start`.
-6. ضع الخادم خلف HTTPS عبر reverse proxy أو خدمة الاستضافة، مع تمرير Cookie وOrigin. لا تشغّل الإدارة عبر HTTP العام.
-7. شغّل **نسخة خادم واحدة** فقط؛ الملفات والجلسات مصممة لإدارة شخصية واحدة. لا تستخدم عدة replicas أو تخزينًا مؤقتًا ephemeral.
-
-جلسة الإدارة تستمر 8 ساعات وتُلغى عند إعادة تشغيل الخادم. حماية الدخول تحدّ 8 محاولات خاطئة خلال 15 دقيقة لكل عنوان شبكة متصل مباشرة بالخادم. خلف proxy تشترك الطلبات بعنوانه؛ لا نثق تلقائيًا بـX-Forwarded-For. يمكن ضبط تحديد المحاولات لكل زائر في بوابة الاستضافة عند الحاجة.
-
-### Docker (اختياري)
-
-```sh
-docker build -t fouad-links .
-docker volume create fouad-links-data
-docker run --rm -it -v fouad-links-data:/app/data fouad-links npm run setup
-docker run -d --name fouad-links -p 3000:3000 -v fouad-links-data:/app/data fouad-links
-```
-
-هذا المثال محلي. للإنتاج أضف `PUBLIC_ORIGIN` و`SECURE_COOKIES=true` إلى تشغيل الحاوية وضعها خلف HTTPS. لا تضع بيانات التشغيل في الصورة.
-
-## الاختبارات
-
-```sh
-npm run check
-npm test
-```
-
-تشمل الاختبارات: حماية الإدارة، كلمة المرور، origin وCSRF، فصل المسودة عن المنشور، تعارض حفظ نافذتين، منع روابط JavaScript، منع الوصول لملفات الخادم، توقيع الصورة، الاستمرار بعد إعادة التشغيل، وحدّ محاولات الدخول.
-
-## النسخ الاحتياطي والاستعادة
-
-أوقف التطبيق، وانسخ مجلد `data/` كاملًا إلى مكان آمن. لاستعادة البيانات أعد المجلد قبل تشغيل التطبيق. احفظ نسخة من المصدر أيضًا. الصور التي تُزال من المحتوى تبقى على القرص لتجنب كسر الروابط السابقة؛ تنظيف الملفات غير المستخدمة يتم يدويًا بعد نسخة احتياطية.
-
-نسيان كلمة المرور: أوقف التطبيق، احذف `data/admin.json` فقط، ثم أعد `npm run setup`. لا تحذف `content.json` أو `uploads/`. هذا يتطلب وصولًا إلى الخادم؛ لا توجد ميزة استرجاع عبر البريد.
-
-## حدود النسخة
-
-إدارة شخصية واحدة، وليس نظام اشتراكات متعدد المستخدمين. لا توجد خدمة بريد أو جدولة نشر. توجد إحصائيات محلية تقريبية لمرات فتح الصفحة والضغط على البطاقات. لا تحتاج هذه النسخة اتصالًا بالإنترنت بعد تثبيت Node.js؛ لا تستخدم خطوطًا أو حزمًا أو CDN خارجية. واجهة الإدارة بالعربية، مع محرر مستقل لكل لغة. صفحة الزوار تدعم العربية RTL والإنجليزية LTR وزر تبديل.
-
-
-## إضافات الإصدار 2.0
-
-### عربي وإنجليزي بمحتوى مستقل
-
-- اختَر «لغة المحتوى الذي تعدّله» في أعلى لوحة الإدارة.
-- لكل لغة ملف شخصي وبطاقات ومشاريع وملفات وصور وتوقيع ولون مستقل.
-- تغيير اللغة لا يحذف مسودة اللغة الأخرى. «حفظ المسودة» و«نشر التغييرات» يشملان **اللغتين معًا**.
-- المحتوى الإنجليزي الأولي قابل للتحرير، وليس ترجمة آلية لبياناتك. راجعه وأضف روابطه قبل النشر.
-- رابط العربية: `/` أو `/?lang=ar`، والإنجليزية: `/?lang=en`. زر التبديل ينقل بينهما.
-- واجهة الإدارة تظل بالعربية؛ لغة المعاينة تتبع اللغة التي تعدّلها. المعاينة لا تجمع إحصائيات.
-
-### بطاقات الـCV والشهادات
-
-داخل «محتوى الصفحة» يوجد قسم «الـCV والشهادات». أضف عنوانًا ووصفًا وحدد النوع: سيرة ذاتية أو شهادة، وارفع PDF أو صورة أو أدخل رابطًا خارجيًا. الجهة المانحة والتاريخ اختياريان. الملف المرفوع يأخذ الأولوية على الرابط. استخدم «إزالة الملف الحالي» للرجوع إلى الرابط. يمكن ترتيب الملفات وإخفاؤها وتعديلها وحذف بطاقاتها مثل بقية المحتوى.
-
-ملفات PDF تُقدَّم كتنزيل ولا تُعرض كصفحات HTML داخل الموقع. لا يتوفر فحص برمجيات خبيثة للملفات؛ الرفع متاح لك وحدك كمدير. الصور وPDF المقبولة تُفحص بصمتها الأساسية وحجمها، وليس صلاحية كل صفحة داخل المستند.
-
-### الإحصائيات
-
-تبويب «الإحصائيات» متاح بعد الدخول فقط، ويعرض:
-
-- مرات فتح الصفحة وضغطات البطاقات خلال 7 أو 30 أو 90 يومًا.
-- مرات الفتح لكل لغة، وترتيب البطاقات الأكثر ضغطًا (روابط، مشاريع، CV وشهادات).
-- جدول النشاط اليومي بتوقيت UTC، مع أيام الصفر.
-
-البيانات في `data/analytics.json` وتستمر بعد إعادة تشغيل الخادم. لا توجد إحصائيات مزروعة أو أرقام سابقة؛ يبدأ التجميع عند تشغيل هذه النسخة. لا يوجد معرّف زائر أو cookies تتبع أو تخزين IP أو معلومات شخصية على القرص؛ عنوان اتصال الشبكة يُستخدم مؤقتًا في الذاكرة لتحديد المعدل ثم تنتهي صلاحيته. لا تُخزَّن أسماء الملفات أو عناوين الروابط في الإحصائيات، بل معرّف البطاقة ولغتها ونوعها وعدد النقرات. تُعرض أسماء البطاقات من النسخة المنشورة حاليًا؛ تغيير الاسم يحتفظ بتاريخ البطاقة نفسه، وحذفها يُظهر «بطاقة محذوفة» في الأرقام السابقة.
-
-الأرقام تقريبية: إعادة التحميل تُحسب كفتح جديد، وتبديل اللغة يفتح صفحة جديدة، والضغط لا يثبت اكتمال تنزيل الملف. ليست أعداد أشخاص فريدين. يتم تجاهل بعض الروبوتات بحسب User-Agent وتحديد 120 حدثًا في الدقيقة لكل اتصال شبكة، لكن هذا لا يمنع كل تلاعب. خلف reverse proxy يمكن أن يشترك الزوار في هذا الحد. يمكن للمتصفح أو انقطاع الاتصال منع إرسال الحدث. الرموز صالحة ساعة من تحميل الصفحة؛ أعد تحميل الصفحة إذا ظلت مفتوحة طويلًا. الاحتفاظ بآخر 90 يومًا فقط.
-
-## ترقية نسختك السابقة بدون فقد المحتوى
-
-1. أوقف الخادم بـCtrl+C.
-2. خذ نسخة احتياطية كاملة من مجلد `data/` وملف `.env` إن وجد.
-3. استبدل ملفات المصدر بملفات هذه الحزمة، **مع إبقاء مجلد `data/` وملف `.env` كما هما**. لا تشغّل `npm run setup` من جديد إذا كان لديك مدير مُنشأ.
-4. شغّل `npm start`. ينقل النظام بيانات الإصدار الأول تلقائيًا إلى المحتوى العربي ويحافظ على كلمة المرور والصور وترتيبك والمسودة والمنشور.
-5. ينشئ `data/content.v1-backup.json` مرة واحدة كنسخة من بنية البيانات القديمة. البيانات الإنجليزية تبدأ بنصوص قابلة للتعديل وروابط فارغة؛ تُدار بشكل مستقل.
-6. افتح الإدارة وراجع اللغتين، ثم أضف ملفاتك وانشر. حدّث صفحة المتصفح لتقرأ JavaScript الجديد.
-
-للعودة للإصدار الأول أوقف الخادم، وأعد المصدر القديم ونسختك الاحتياطية الأصلية من `data/`. لا تشغّل المصدر القديم على بنية بيانات الإصدار الثاني.
-
-تشمل اختبارات الإصدار الجديد أيضًا ترقية بيانات الإصدار الأول، واستقلال اللغتين، ورفع PDF، والحماية من تتبع بطاقات غير منشورة، وإحصائيات كل لغة، واستمرار الأرقام بعد إعادة التشغيل.
+Built by **Fouad Adel** — Backend Developer.

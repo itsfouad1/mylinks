@@ -1,4 +1,13 @@
-data/
-.env
 node_modules/
+.wrangler/
+.build/
+.dev.vars
+.dev.vars.*
+.env
+.env.*
+!.env.example
 *.log
+data/
+legacy-data/
+migration-output/
+*.zip
